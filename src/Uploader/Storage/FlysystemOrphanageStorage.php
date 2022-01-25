@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace Oneup\UploaderBundle\Uploader\Storage;
 
-use League\Flysystem\File;
+use Exception;
+use League\Flysystem\FilesystemException;
+use League\Flysystem\StorageAttributes;
 use Oneup\UploaderBundle\Uploader\Chunk\Storage\FlysystemStorage as ChunkStorage;
 use Oneup\UploaderBundle\Uploader\File\FileInterface;
 use Oneup\UploaderBundle\Uploader\File\FlysystemFile;
+use RuntimeException;
 use Symfony\Component\HttpFoundation\File\File as SymfonyFile;
 use Symfony\Component\HttpFoundation\Session\SessionInterface;
 
@@ -56,17 +59,22 @@ class FlysystemOrphanageStorage extends FlysystemStorage implements OrphanageSto
     /**
      * @param FileInterface|SymfonyFile $file
      *
+     * @throws FilesystemException
+     *
      * @return FileInterface|SymfonyFile
      */
     public function upload($file, string $name, string $path = null)
     {
         if (!$this->session->isStarted()) {
-            throw new \RuntimeException('You need a running session in order to run the Orphanage.');
+            throw new RuntimeException('You need a running session in order to run the Orphanage.');
         }
 
         return parent::upload($file, $name, $this->getPath());
     }
 
+    /**
+     * @throws FilesystemException
+     */
     public function uploadFiles(array $files = null): array
     {
         try {
@@ -78,18 +86,21 @@ class FlysystemOrphanageStorage extends FlysystemStorage implements OrphanageSto
             foreach ($files as $key => $file) {
                 try {
                     $return[] = $this->storage->upload($file, str_replace($this->getPath(), '', $key));
-                } catch (\Exception $e) {
+                } catch (Exception $e) {
                     // well, we tried.
                     continue;
                 }
             }
 
             return $return;
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             return [];
         }
     }
 
+    /**
+     * @throws FilesystemException
+     */
     public function getFiles(): array
     {
         $fileList = $this->chunkStorage
@@ -97,13 +108,11 @@ class FlysystemOrphanageStorage extends FlysystemStorage implements OrphanageSto
             ->listContents($this->getPath());
         $files = [];
 
+        /** @var StorageAttributes $fileDetail */
         foreach ($fileList as $fileDetail) {
-            $key = $fileDetail['path'];
-            if ('file' === $fileDetail['type']) {
-                $files[$key] = new FlysystemFile(
-                    new File($this->chunkStorage->getFilesystem(), $key),
-                    $this->chunkStorage->getFilesystem()
-                );
+            $key = $fileDetail->path();
+            if ($fileDetail->isFile()) {
+                $files[$key] = new FlysystemFile($key, $this->chunkStorage->getFilesystem());
             }
         }
 
